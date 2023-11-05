@@ -78,87 +78,107 @@ def Fgain_ratio(noden,pe):
 def find_best_Attribute(data):
     dict =  {}
     attributes = list(data.columns[:6]) 
-    # attributes.append("Shagginess")
-    # attributes.append("ApeFactor")
+    attributes.append("Shagginess")
+    attributes.append("ApeFactor")
     for attribute in attributes:
-        best_igr = -float("inf")
+        best_igr = 0
+        best_thres = None
         pe = [len(data[data["ClassID"] == 1]), len(data[data["ClassID"] == -1])]
 
-        best_thres = data[attribute].min()
+        # best_thres = data[attribute].min()
         for threshold in np.arange(data[attribute].min(), data[attribute].max()+1):
             # splitting the attribute on the given threshold.
-
+            if (attribute == "Reach") and (threshold == 172.5) and (len(data) == 27):
+                print()
             nodeL = data[data[attribute] <= threshold] 
             nodeR = data[data[attribute] > threshold]
             nodeL_splits = [len(nodeL[nodeL["ClassID"] == 1]), len(nodeL[nodeL["ClassID"] == -1])]
             nodeR_splits = [len(nodeR[nodeR["ClassID"] == 1]), len(nodeR[nodeR["ClassID"] == -1])]
-
+            
             x = [nodeL_splits, nodeR_splits]
-    
-            if np.sum(x) == 1:
-                best_thres = threshold
+            if (sum(nodeL_splits) == 0 )or (sum(nodeR_splits) == 0):
+                continue
             igr = Fgain_ratio(x, pe)
-
+            
+            # print(attribute, igr, threshold, len(data))
             if igr > best_igr:
                 best_igr = igr
                 best_thres = threshold
-
-        dict[attribute] = [best_thres, best_igr]
+                dict[attribute] = [best_thres, best_igr]
 
     ba = max(dict.items(), key = lambda attribute:  attribute[1][1])
     return ba[0], ba[1][0], ba[1][1]
 
 class Node:
     def __init__(self, data, max_depth, prev_depth, min_spits, N):
+        self.data = data
         self.left_node = None
         self.right_node = None
         current_depth = prev_depth + 1
         self.max_depth = int(max_depth)
         self.minimum_sample_splits = int(min_spits)
         self.leng = N
-        self.best_attribute, self.best_threshold, self.igr = find_best_Attribute(data)
-        
-        if len(data) != 1:
-            len_data = len(data)
+        if len(set(data["ClassID"])) != 1:
+            self.best_attribute, self.best_threshold, self.igr = find_best_Attribute(data)
+            # print(self.best_attribute)
+            len_data = len(self.data)
             if (current_depth <= max_depth) and (len_data >= min_spits):
                 nodeL = data[data[self.best_attribute] <= self.best_threshold]
                 nodeR = data[data[self.best_attribute] > self.best_threshold]
                 # add condition to check if the split has improved
-                
-                if len(nodeL) > 0:
-                    self.left_node = Node(nodeL, self.max_depth, current_depth, self.minimum_sample_splits, len(nodeL))
-                if len(nodeR) > 0:
-                    self.right_node = Node(nodeR, self.max_depth, current_depth, self.minimum_sample_splits, len(nodeR))
+                if self.igr > 0:
+                    if len(nodeL) > 0:
+                        self.left_node = Node(nodeL, self.max_depth, current_depth, self.minimum_sample_splits, len(nodeL))
+                    if len(nodeR) > 0:
+                        self.right_node = Node(nodeR, self.max_depth, current_depth, self.minimum_sample_splits, len(nodeR))
 
 
 
 data = pd.read_csv("Abominable_Data_HW_LABELED_TRAINING_DATA__v772_2231.csv")
+
 data = quantise_data(data)
 data = create_new_features(data)
 create_test_suites(data)
-# data = pd.read_csv("Abominable_VALIDATION_Data_FOR_STUDENTS_v772_2231.csv")
-node = Node(data, 7, 0, 23, len(data))
+node1 = Node(data, 7, 0, 23, len(data))
 
-b = 0
-a = 0
+prediction =[]
 
-data = pd.read_csv("Abominable_Data_HW_LABELED_TRAINING_DATA__v772_2231.csv")
-# for index, row in data.iterrows():
-#     while True:
-#         condition = row[node.best_attribute] <= node.best_threshold
-#         if row[node.best_attribute] <= node.best_threshold:
-#             if node.left_node == None:
-#                 b += 1
-#                 print("if left node is none leaf node", level, node.best_attribute, node.best_threshold)
-#                 break
-#             node = node.left_node
-#             print("if left node is internal node", level, node.best_attribute, node.best_threshold)
-#         else:
-#             if node.right_node == None:
-#                 a += 1
-#                 print("if right node is none,  leaf node", level, node.best_attribute, node.best_threshold)
-#                 break
-#             print("if right node is internal node", level, node.best_attribute, node.best_threshold)
-#             node = node.right_node
-#     break
-print(a, b)
+for index, row in data.iterrows():
+    node = node1
+    while True:
+        if node.left_node == None and node.right_node == None: 
+            break
+        if row[node.best_attribute] <= node.best_threshold:
+            if node.left_node == None:
+                break
+            node = node.left_node
+        else:
+            if node.right_node == None:
+                break
+            node = node.right_node
+    prediction.append(node.data["ClassID"].value_counts().index[0])
+
+y = data["ClassID"].to_list()
+acuracy = np.sum(np.where(np.array(y) == np.array(prediction),True, False)) / len(y)
+print(acuracy)
+
+
+def tree_to_if_else(node, indent=""):
+    if node is None:
+        # Leaf node, return the result
+        return f"{indent}return class = 1\n"
+
+    # Non-leaf node
+    if node.left_node == None and node.right_node == None: 
+        return 
+    condition = f"{node.best_attribute} <= {node.best_threshold}"
+    left_code = tree_to_if_else(node.left_node, indent + "    ")
+    right_code = tree_to_if_else(node.right_node, indent + "    ")
+
+    code = f"{indent}if {condition}:\n{left_code}{indent}else:\n{right_code}"
+
+    return code
+
+code = tree_to_if_else(node1)
+print(code)
+    
